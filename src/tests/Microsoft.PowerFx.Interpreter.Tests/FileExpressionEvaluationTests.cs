@@ -47,6 +47,19 @@ namespace Microsoft.PowerFx.Interpreter.Tests
             }
         }
 
+        // Helpful for debugging. Can run a single test. 
+        //[Fact]
+        public void RunOne()
+        {
+            var file = @"D:\dev\pa2\Power-Fx\src\tests\Microsoft.PowerFx.Interpreter.Tests\InterpreterExpressionTestCases\ParallelAsync.txt";
+            
+            var testRunner = new TestRunner(new InterpreterRunner());
+            testRunner.AddFile(file);
+                        
+            var (total, failed, passed, output) = testRunner.RunTests();
+            Assert.Equal(0, failed);            
+        }
+
         // Since test discovery runs in a separate process, run a dedicated 
         // parse pass as a single unit test to verify all the .txt will parse. 
         // This doesn't actually run any tests. 

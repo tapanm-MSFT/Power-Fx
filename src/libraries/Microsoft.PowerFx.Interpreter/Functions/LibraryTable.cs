@@ -22,8 +22,7 @@ namespace Microsoft.PowerFx.Functions
             var arg1 = (LambdaFormulaValue)args[1];
             var arg2 = (LambdaFormulaValue)(args.Length > 2 ? args[2] : null);
 
-            var rowsAsync = LazyFilterAsync(runner, symbolContext, arg0.Rows, arg1);
-            var rows = await rowsAsync.ToListAsync();
+            var rows = await LazyFilterAsync(runner, symbolContext, arg0.Rows, arg1);
             var row = rows.FirstOrDefault();
 
             if (row != null)
@@ -195,10 +194,8 @@ namespace Microsoft.PowerFx.Functions
                 });
             }
 
-            var rowsAsync = LazyFilterAsync(runner, symbolContext, arg0.Rows, arg1);
+            var rows = await LazyFilterAsync(runner, symbolContext, arg0.Rows, arg1);
             
-            var rows = await rowsAsync.ToListAsync();
-
             return new InMemoryTableValue(irContext, rows);
         }
 
@@ -294,37 +291,62 @@ namespace Microsoft.PowerFx.Functions
             return new InMemoryTableValue(irContext, pairs.Select(pair => pair.Key));
         }
 
-        private static async IAsyncEnumerable<DValue<RecordValue>> LazyFilterAsync(
+        private static async Task<DValue<RecordValue>> LazyFilterRowAsync(
+           EvalVisitor runner,
+           SymbolContext context,
+           DValue<RecordValue> row,
+           LambdaFormulaValue filter)
+        {
+            if (row.IsValue)
+            {
+                var childContext = context.WithScopeValues(row.Value);
+
+                // Filter evals to a boolean 
+                var result = await filter.EvalAsync(runner, childContext);
+                var include = false;
+                if (result is BooleanValue booleanValue)
+                {
+                    include = booleanValue.Value;
+                }
+                else if (result is ErrorValue errorValue)
+                {
+                    return DValue<RecordValue>.Of(errorValue);
+                }
+
+                if (include)
+                {
+                    return row;
+                }
+            }
+
+            return null;
+        }
+
+        private static async Task<DValue<RecordValue>[]> LazyFilterAsync(
             EvalVisitor runner,
             SymbolContext context,
             IEnumerable<DValue<RecordValue>> sources,
-            LambdaFormulaValue filter)
+            LambdaFormulaValue filter, 
+            int topN = int.MaxValue)
         {
+            var tasks = new List<Task<DValue<RecordValue>>>();
+            
+            // Filter needs to allow running in parallel. 
             foreach (var row in sources)
             {
                 runner.CheckCancel();
-                if (row.IsValue)
-                {
-                    var childContext = context.WithScopeValues(row.Value);
 
-                    // Filter evals to a boolean 
-                    var result = await filter.EvalAsync(runner, childContext);
-                    var include = false;
-                    if (result is BooleanValue booleanValue)
-                    {
-                        include = booleanValue.Value;
-                    }
-                    else if (result is ErrorValue errorValue)
-                    {
-                        yield return DValue<RecordValue>.Of(errorValue);
-                    }
-
-                    if (include)
-                    {
-                        yield return row;
-                    }
-                }
+                var task = LazyFilterRowAsync(runner, context, row, filter);
+                tasks.Add(task);
             }
+
+            // WhenAll will allow running tasks in parallel. 
+            var results = await Task.WhenAll(tasks);
+
+            // Remove all nulls. 
+            var final = results.Where(x => x != null);
+
+            return final.ToArray();
         }
 
         // AddColumns accepts pairs of args. 

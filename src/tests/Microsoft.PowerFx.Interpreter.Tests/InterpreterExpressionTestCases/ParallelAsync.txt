@@ -1,0 +1,29 @@
+﻿#SETUP: AsyncTestSetup
+
+// Testsetup adds these functions:
+// - Async(N) Does not complete until Async(N-1) completes. Async(0) is completed. 
+//   This verifies operations are happening in parallel (else the tests will deadlock and hit a timeout)
+
+// table operations can work in parallel and handle rows that complete out-of-order.
+>> Filter([1,0,2], Async(Value) = Value)
+[1,0,2]
+
+>> Filter([1,3,0,2], Async(Value) > 1)
+[3,2]
+
+>> ForAll([1,0,2], Async(Value))
+[1,0,2]
+
+>> If(Async(0) = 0, Async(1), 1/0)
+1
+
+>> ForAll([1,0], If(Async(Value) = 0, Async(2), Async(3)))
+[3,2]
+
+//-------------------------
+// Hangs - any await in a for loop is suspect.
+
+// With({x:Async(1), y: Async(0)}, x & y)
+// records, tables, callnode args 
+
+// Async(1) + Async(0) 
